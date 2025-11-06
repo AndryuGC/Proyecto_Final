@@ -1,0 +1,113 @@
+/* ======== Paleta clara tipo Word mock ======== */
+.app-root {
+    -fx-bg:          #EFEFEF;   /* fondo gris suave */
+    -fx-panel:       #F7F7F7;   /* tarjeta clara */
+    -fx-border:      #CFCFCF;   /* borde sutil */
+    -fx-text:        #1C1C1C;   /* texto principal */
+    -fx-muted:       #6B6B6B;
+    -fx-accent:      #E6E6E6;   /* botones claros */
+    -fx-accent-border:#BDBDBD;
+
+    -fx-background-color: linear-gradient(to bottom, #EAEAEA 0%, #F2F2F2 100%);
+}
+
+/* ===== Barra superior (donde están tus 5 botones) ===== */
+.actions-bar {
+    -fx-background-color: transparent;
+    -fx-padding: 12 14 4 14;
+}
+
+/* ===== Consola ===== */
+.console {
+    -fx-control-inner-background: #FAFAFA;
+    -fx-background-color: #FAFAFA;
+    -fx-text-fill: -fx-text;
+    -fx-highlight-fill: #D7ECFF;
+    -fx-highlight-text-fill: -fx-text;
+    -fx-border-color: -fx-border;
+    -fx-border-radius: 14;
+    -fx-background-radius: 14;
+    -fx-padding: 12;
+    -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.08), 12, 0.2, 0, 3);
+}
+
+/* ===== Tarjetas / panel inferior (Include/Exclude/Checks) ===== */
+.options-card {
+    -fx-background-color: -fx-panel;
+    -fx-background-radius: 18;
+    -fx-border-color: derive(-fx-border, -5%);
+    -fx-border-radius: 18;
+    -fx-padding: 16 18 14 18;
+    -fx-effect:
+            dropshadow(gaussian, rgba(0,0,0,0.12), 18, 0.22, 0, 6);
+}
+
+/* ===== Labels ===== */
+.flat-label {
+    -fx-text-fill: -fx-muted;
+    -fx-font-weight: 700;
+}
+
+/* ===== Inputs ===== */
+.flat-input {
+    -fx-background-color: #FFFFFF;
+    -fx-text-fill: -fx-text;
+    -fx-background-radius: 12;
+    -fx-border-radius: 12;
+    -fx-border-color: -fx-border;
+    -fx-padding: 8 12;
+}
+.flat-input:focused {
+    -fx-border-color: #9BC9FF;
+    -fx-effect: dropshadow(gaussian, rgba(155,201,255,0.55), 16, 0.25, 0, 0);
+}
+
+/* ===== Checkboxes ===== */
+.flat-check .box {
+    -fx-background-color: #FFFFFF;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: -fx-border;
+}
+.flat-check .text { -fx-fill: -fx-text; }
+.flat-check:selected .mark { -fx-background-color: #5AA2FF; }
+
+/* ===== Botones grandes tipo “card” (como en la imagen) ===== */
+.flat-btn {
+    -fx-background-color: -fx-accent;
+    -fx-text-fill: -fx-text;
+    -fx-font-weight: 900;
+    -fx-font-size: 14px;
+    -fx-padding: 12 18;
+    -fx-background-radius: 16;
+    -fx-border-radius: 16;
+    -fx-border-color: -fx-accent-border;
+    -fx-cursor: hand;
+    -fx-effect:
+            dropshadow(gaussian, rgba(0,0,0,0.10), 10, 0.20, 0, 4);
+}
+.flat-btn:hover   { -fx-background-color: #F2F2F2; }
+.flat-btn:pressed { -fx-translate-y: 1; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.06), 6, 0.20, 0, 1); }
+
+/* Variantes (todas claras como tu diseño) */
+.flat-btn.primary,
+.flat-btn.secondary,
+.flat-btn.primary-outline,
+.flat-btn.accent,
+.flat-btn.warning {
+    -fx-background-color: -fx-accent;
+    -fx-text-fill: -fx-text;
+    -fx-border-color: -fx-accent-border;
+}
+
+/* Diálogos */
+.dialog-pane, .alert {
+    -fx-background-color: -fx-panel;
+    -fx-text-fill: -fx-text;
+}
+
+/* ===== Contenedor raíz con borde redondeado y sombra general ===== */
+.app-root > * {
+    /* deja un poco de “aire” al borde visual */
+    -fx-padding: 10;
+}
