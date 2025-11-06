@@ -2,17 +2,25 @@ package crypto;
 
 import java.nio.charset.StandardCharsets;
 
-public class Encryptor {
+public final class Encryptor {
+    private Encryptor(){}
 
-    // Cifra los bytes usando XOR con la contraseña repetida
-    public static byte[] encrypt(byte[] data, String password) {
-        byte[] key = password.getBytes(StandardCharsets.UTF_8);
+    public static byte[] encrypt(byte[] data, String password){
         byte[] out = new byte[data.length];
-
-        for (int i = 0; i < data.length; i++) {
-            out[i] = (byte) (data[i] ^ key[i % key.length]);
+        long s = seed(password);
+        for (int i=0;i<data.length;i++){
+            s = lcg(s);
+            out[i] = (byte) (data[i] ^ (byte)(s & 0xFF));
         }
-
         return out;
     }
+
+    static long seed(String pw){
+        byte[] k = pw.getBytes(StandardCharsets.UTF_8);
+        long s = 1469598103934665603L; // FNV offset
+        for (byte b: k){ s ^= (b & 0xFF); s *= 1099511628211L; }
+        return s;
+    }
+    static long lcg(long x){ return (6364136223846793005L * x + 1442695040888963407L); }
 }
+

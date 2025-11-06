@@ -7,220 +7,169 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 
-/**
- * Procesa carpetas completas en 4 modos:
- *  - COMPRESS -> genera .cmp
- *  - COMPRESS_ENCRYPT -> genera .ec (requiere password)
- *  - DECOMPRESS -> lee .cmp y genera .txt
- *  - DECRYPT_DECOMPRESS -> lee .ec y genera .txt (requiere password)
- *
- * Opciones:
- *  - recursive: recorrer subcarpetas
- *  - overwrite: sobrescribir si el destino existe
- *  - includeExts/excludeExts: filtro por extensiones (solo para COMPRESS/COMPRESS_ENCRYPT)
- *  - dryRun: simular (no escribe nada)
- *
- * Nota: los logs por archivo los escribe FileCompressor (Fase 3).
- */
-public class BatchProcessor {
+public final class BatchProcessor {
 
-    // API rápida
-    public static void processFolderCompress(String inputDir, String outputDir, boolean recursive) {
-        runBatch(new BatchConfig(inputDir, outputDir, Mode.COMPRESS).recursive(recursive));
-    }
-    public static void processFolderCompressEncrypt(String inputDir, String outputDir, String password, boolean recursive) {
-        runBatch(new BatchConfig(inputDir, outputDir, Mode.COMPRESS_ENCRYPT).password(password).recursive(recursive));
-    }
-    public static void processFolderDecompress(String inputDir, String outputDir, boolean recursive) {
-        runBatch(new BatchConfig(inputDir, outputDir, Mode.DECOMPRESS).recursive(recursive));
-    }
-    public static void processFolderDecryptDecompress(String inputDir, String outputDir, String password, boolean recursive) {
-        runBatch(new BatchConfig(inputDir, outputDir, Mode.DECRYPT_DECOMPRESS).password(password).recursive(recursive));
-    }
+    public enum Mode { COMPRESS, COMPRESS_ENCRYPT, DECOMPRESS, DECRYPT_DECOMPRESS }
 
-    // API completa
-    public static void runBatch(BatchConfig cfg) {
-        Objects.requireNonNull(cfg, "cfg no puede ser null");
-        Path inBase  = Paths.get(cfg.inputDir);
-        Path outBase = Paths.get(cfg.outputDir);
-
-        if (!Files.isDirectory(inBase)) {
-            System.err.println("La carpeta de entrada no existe o no es carpeta: " + inBase.toAbsolutePath());
-            return;
-        }
-        try { Files.createDirectories(outBase); }
-        catch (IOException e) {
-            System.err.println("No se pudo crear la carpeta de salida: " + outBase + " -> " + e.getMessage());
-            return;
-        }
-
-        Set<String> include = normalizeExts(cfg.includeExts);
-        Set<String> exclude = normalizeExts(cfg.excludeExts);
-
-        printHeader(cfg, inBase, outBase, include, exclude);
-        Summary sum = new Summary();
-
-        try {
-            if (cfg.recursive) {
-                Files.walkFileTree(inBase, new SimpleFileVisitor<>() {
-                    @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
-                        processOne(file, inBase, outBase, cfg, include, exclude, sum);
-                        return FileVisitResult.CONTINUE;
-                    }
-                });
-            } else {
-                try (var stream = Files.list(inBase)) {
-                    stream.filter(Files::isRegularFile)
-                            .forEach(p -> processOne(p, inBase, outBase, cfg, include, exclude, sum));
-                }
-            }
-        } catch (IOException e) {
-            System.err.println("Error recorriendo carpeta: " + e.getMessage());
-        }
-
-        printFooter(sum);
-    }
-
-    private static void processOne(Path src, Path inBase, Path outBase,
-                                   BatchConfig cfg, Set<String> include, Set<String> exclude, Summary sum) {
-        sum.processed++;
-        String nameLower = src.getFileName().toString().toLowerCase(Locale.ROOT);
-        if (nameLower.endsWith(".log")) { sum.skip++; log("SKIP (log): " + src); return; }
-
-        if (!shouldConsiderFile(src, cfg.mode, include, exclude)) {
-            sum.skip++; log("SKIP (no aplica por modo/filtro): " + src); return;
-        }
-
-        Path rel = inBase.relativize(src);
-        Path dst = outBase.resolve(rel);
-        dst = switch (cfg.mode) {
-            case COMPRESS            -> changeExtension(dst, ".cmp");
-            case COMPRESS_ENCRYPT    -> changeExtension(dst, ".ec");
-            case DECOMPRESS          -> changeExtension(dst, ".txt");
-            case DECRYPT_DECOMPRESS  -> changeExtension(dst, ".txt");
-        };
-
-        try { Files.createDirectories(dst.getParent()); }
-        catch (IOException e) { sum.fail++; log("FAIL (mkdirs): " + src + " -> " + e.getMessage()); return; }
-
-        if (!cfg.overwrite && Files.exists(dst)) { sum.skip++; log("SKIP (existe): " + dst); return; }
-        if (cfg.dryRun) { sum.ok++; log("[DRY] " + cfg.mode + ": " + src + " -> " + dst); return; }
-
-        try {
-            switch (cfg.mode) {
-                case COMPRESS -> FileCompressor.comprimirArchivo(src.toString(), dst.toString());
-                case COMPRESS_ENCRYPT -> FileCompressor.comprimirYEncriptarArchivo(src.toString(), dst.toString(), requirePassword(cfg));
-                case DECOMPRESS -> FileCompressor.descomprimirArchivo(src.toString(), dst.toString());
-                case DECRYPT_DECOMPRESS -> FileCompressor.desencriptarYDescomprimirArchivo(src.toString(), dst.toString(), requirePassword(cfg));
-            }
-            sum.ok++; log("OK: " + src + " -> " + dst);
-        } catch (Exception ex) {
-            sum.fail++; log("FAIL: " + src + " (" + ex.getMessage() + ")");
-        }
-    }
-
-    private static boolean shouldConsiderFile(Path src, Mode mode, Set<String> include, Set<String> exclude) {
-        String fname = src.getFileName().toString().toLowerCase(Locale.ROOT);
-        if ((mode == Mode.COMPRESS || mode == Mode.COMPRESS_ENCRYPT) &&
-                (fname.endsWith(".cmp") || fname.endsWith(".ec") || fname.endsWith(".log"))) return false;
-
-        switch (mode) {
-            case COMPRESS, COMPRESS_ENCRYPT -> {
-                String ext = fileExt(fname);
-                // Si no definieron include, por defecto tomamos .txt y .md para evitar binarios
-                if (include.isEmpty() && !(ext.equals(".txt") || ext.equals(".md"))) return false;
-                if (!include.isEmpty() && !include.contains(ext)) return false;
-                if (!exclude.isEmpty() && exclude.contains(ext)) return false;
-                return true;
-            }
-            case DECOMPRESS -> { return fname.endsWith(".cmp"); }
-            case DECRYPT_DECOMPRESS -> { return fname.endsWith(".ec"); }
-        }
-        return false;
-    }
-
-    private static String fileExt(String fname) {
-        int dot = fname.lastIndexOf('.');
-        return (dot >= 0) ? fname.substring(dot) : "";
-    }
-
-    private static Set<String> normalizeExts(Collection<String> exts) {
-        Set<String> out = new HashSet<>();
-        if (exts == null) return out;
-        for (String s : exts) {
-            if (s == null || s.isBlank()) continue;
-            String t = s.trim().toLowerCase(Locale.ROOT);
-            if (!t.startsWith(".")) t = "." + t;
-            out.add(t);
-        }
-        return out;
-    }
-
-    private static Path changeExtension(Path path, String newExt) {
-        String fileName = path.getFileName().toString();
-        int dot = fileName.lastIndexOf('.');
-        String base = (dot >= 0) ? fileName.substring(0, dot) : fileName;
-        return path.getParent().resolve(base + newExt);
-    }
-
-    private static void log(String s) { System.out.println(s); }
-
-    private static void printHeader(BatchConfig cfg, Path inBase, Path outBase, Set<String> include, Set<String> exclude) {
-        System.out.println("=== BATCH " + cfg.mode.label + " ===");
-        System.out.println("Entrada   : " + inBase.toAbsolutePath());
-        System.out.println("Salida    : " + outBase.toAbsolutePath());
-        System.out.println("Recursivo : " + cfg.recursive + " | Overwrite: " + cfg.overwrite + " | Dry-run: " + cfg.dryRun);
-        if (cfg.mode == Mode.COMPRESS_ENCRYPT || cfg.mode == Mode.DECRYPT_DECOMPRESS) System.out.println("Password  : [oculto]");
-        if (!include.isEmpty()) System.out.println("Include   : " + include);
-        if (!exclude.isEmpty()) System.out.println("Exclude   : " + exclude);
-        System.out.println("----------------------------------------");
-    }
-
-    private static void printFooter(Summary sum) {
-        System.out.println("----------------------------------------");
-        System.out.println("Procesados: " + sum.processed);
-        System.out.println("OK       : " + sum.ok);
-        System.out.println("SKIP     : " + sum.skip);
-        System.out.println("FAIL     : " + sum.fail);
-        System.out.println("=== FIN BATCH ===");
-    }
-
-    private static String requirePassword(BatchConfig cfg) {
-        if (cfg.password == null || cfg.password.isEmpty()) throw new IllegalArgumentException("Password requerido para el modo " + cfg.mode);
-        return cfg.password;
-    }
-
-    public enum Mode {
-        COMPRESS("COMPRESIÓN"),
-        COMPRESS_ENCRYPT("COMPRESIÓN+ENCRIPTACIÓN"),
-        DECOMPRESS("DESCOMPRESIÓN (.cmp)"),
-        DECRYPT_DECOMPRESS("DESCIFRAR+DESCOMPRIMIR (.ec)");
-        public final String label;
-        Mode(String label) { this.label = label; }
-    }
-
-    public static class BatchConfig {
-        public final String inputDir;
-        public final String outputDir;
+    public static final class BatchConfig {
+        public final Path inputDir;
+        public final Path outputDir;
         public final Mode mode;
+
         public boolean recursive = true;
-        public boolean overwrite = false;
-        public boolean dryRun = false;
-        public String password = null;
-        public List<String> includeExts = new ArrayList<>();
-        public List<String> excludeExts = new ArrayList<>();
-        public BatchConfig(String inputDir, String outputDir, Mode mode) {
-            this.inputDir = Objects.requireNonNull(inputDir);
-            this.outputDir = Objects.requireNonNull(outputDir);
+        public boolean overwrite = true;
+        public boolean dryRun    = false;
+
+        public String password = "";
+        public final Set<String> includeExts = new HashSet<>();
+        public final Set<String> excludeExts = new HashSet<>();
+
+        public BatchConfig(String inDir, String outDir, Mode mode) {
+            this.inputDir  = Paths.get(inDir);
+            this.outputDir = Paths.get(outDir);
             this.mode = Objects.requireNonNull(mode);
         }
         public BatchConfig recursive(boolean v) { this.recursive = v; return this; }
         public BatchConfig overwrite(boolean v) { this.overwrite = v; return this; }
         public BatchConfig dryRun(boolean v)    { this.dryRun = v; return this; }
         public BatchConfig password(String p)   { this.password = p; return this; }
-        public BatchConfig include(String... exts) { this.includeExts.addAll(Arrays.asList(exts)); return this; }
-        public BatchConfig exclude(String... exts) { this.excludeExts.addAll(Arrays.asList(exts)); return this; }
+        public BatchConfig include(String... e) { this.includeExts.addAll(toLower(e)); return this; }
+        public BatchConfig exclude(String... e) { this.excludeExts.addAll(toLower(e)); return this; }
+        private static Collection<String> toLower(String... a){
+            ArrayList<String> r = new ArrayList<>();
+            for (String s : a) if (s!=null) r.add(s.toLowerCase(Locale.ROOT));
+            return r;
+        }
     }
 
+    private BatchProcessor(){}
+
+    public static void runBatch(BatchConfig cfg) throws IOException {
+        if (!Files.isDirectory(cfg.inputDir)) throw new IOException("Directorio de entrada inválido: " + cfg.inputDir);
+        Files.createDirectories(cfg.outputDir);
+
+        Summary sum = new Summary();
+        Files.walkFileTree(cfg.inputDir, cfg.recursive ? EnumSet.noneOf(FileVisitOption.class) : EnumSet.noneOf(FileVisitOption.class),
+                cfg.recursive ? Integer.MAX_VALUE : 1,
+                new SimpleFileVisitor<>() {
+                    @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
+                        try {
+                            processOne(file, cfg);
+                            sum.ok++;
+                        } catch (Skip s) {
+                            System.out.println("[SKIP] " + file + " - " + s.reason);
+                            sum.skip++;
+                        } catch (Exception e) {
+                            System.out.println("[FAIL] " + file + " - " + e.getMessage());
+                            sum.fail++;
+                        }
+                        sum.processed++;
+                        return FileVisitResult.CONTINUE;
+                    }
+                });
+
+        System.out.printf("%nProcesados: %d | OK: %d | SKIP: %d | FAIL: %d%n",
+                sum.processed, sum.ok, sum.skip, sum.fail);
+    }
+
+    // ---------- Lógica por archivo ----------
+    private static void processOne(Path src, BatchConfig cfg) throws Exception {
+        if (Files.isDirectory(src)) throw new Skip("es carpeta");
+
+        // Filtros include/exclude por extensión (si se configuraron)
+        if (!shouldConsiderByExt(src, cfg)) throw new Skip("filtrado por Include/Exclude");
+
+        Path rel = cfg.inputDir.relativize(src);
+        Path dstBase = cfg.outputDir.resolve(rel).normalize();
+        Files.createDirectories(dstBase.getParent());
+
+        switch (cfg.mode) {
+            case COMPRESS -> {
+                // Evitar recomprimir contenedores
+                String n = src.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (n.endsWith(".cmp") || n.endsWith(".ec")) throw new Skip("ya es contenedor (.cmp/.ec)");
+                Path out = replaceExt(dstBase, ".cmp");
+                if (!cfg.overwrite && Files.exists(out)) throw new Skip("existe y overwrite=false");
+                if (cfg.dryRun) { System.out.println("[DRY] " + src + " -> " + out); return; }
+                FileCompressor.compressFile(src, out);
+                System.out.println("[OK] COMPRESS " + src + " -> " + out);
+            }
+            case COMPRESS_ENCRYPT -> {
+                String n = src.getFileName().toString().toLowerCase(Locale.ROOT);
+                if (n.endsWith(".cmp") || n.endsWith(".ec")) throw new Skip("ya es contenedor (.cmp/.ec)");
+                Path out = replaceExt(dstBase, ".ec");
+                if (!cfg.overwrite && Files.exists(out)) throw new Skip("existe y overwrite=false");
+                if (cfg.dryRun) { System.out.println("[DRY] " + src + " -> " + out); return; }
+                FileCompressor.compressEncrypt(src, out, cfg.password);
+                System.out.println("[OK] COMPRESS+ENCRYPT " + src + " -> " + out);
+            }
+            case DECOMPRESS -> {
+                // Ahora no dependemos de la extensión: leemos el contenedor
+                Sfe1Info info = probeSfe1(src);
+                if (!info.isSfe1) throw new Skip("no es contenedor SFE1");
+                if (info.encrypted) throw new Skip("está encriptado; usa DECRYPT_DECOMPRESS");
+                Path out = replaceExt(dstBase, ".txt");
+                if (!cfg.overwrite && Files.exists(out)) throw new Skip("existe y overwrite=false");
+                if (cfg.dryRun) { System.out.println("[DRY] " + src + " -> " + out); return; }
+                FileCompressor.decompressFile(src, out);
+                System.out.println("[OK] DECOMPRESS " + src + " -> " + out);
+            }
+            case DECRYPT_DECOMPRESS -> {
+                Sfe1Info info = probeSfe1(src);
+                if (!info.isSfe1) throw new Skip("no es contenedor SFE1");
+                if (!info.encrypted) throw new Skip("no está encriptado; usa DECOMPRESS");
+                Path out = replaceExt(dstBase, ".txt");
+                if (!cfg.overwrite && Files.exists(out)) throw new Skip("existe y overwrite=false");
+                if (cfg.dryRun) { System.out.println("[DRY] " + src + " -> " + out); return; }
+                FileCompressor.decryptDecompress(src, out, cfg.password);
+                System.out.println("[OK] DECRYPT+DECOMPRESS " + src + " -> " + out);
+            }
+        }
+    }
+
+    // ---------- Helpers ----------
+    private static boolean shouldConsiderByExt(Path src, BatchConfig cfg) {
+        String ext = extOf(src).orElse("");
+
+        // Include/Exclude vacíos => no filtran nada
+        if (!cfg.includeExts.isEmpty() && !cfg.includeExts.contains(ext)) return false;
+        if (cfg.excludeExts.contains(ext)) return false;
+
+        return true;
+    }
+
+    private static Optional<String> extOf(Path p){
+        String n = p.getFileName().toString();
+        int i = n.lastIndexOf('.');
+        return (i>=0 && i<n.length()-1) ? Optional.of(n.substring(i+1).toLowerCase(Locale.ROOT)) : Optional.empty();
+    }
+
+    private static Path replaceExt(Path base, String newExt){
+        String n = base.getFileName().toString();
+        int i = n.lastIndexOf('.');
+        String b = (i>=0) ? n.substring(0,i) : n;
+        return base.getParent()==null ? Paths.get(b+newExt) : base.getParent().resolve(b+newExt);
+    }
+
+    // Lee MAGIC y FLAGS rápidamente para decidir si es SFE1 y si está encriptado.
+    private record Sfe1Info(boolean isSfe1, boolean encrypted) {}
+    private static Sfe1Info probeSfe1(Path p) {
+        try {
+            byte[] h = Files.readAllBytes(p);
+            if (h.length < 5) return new Sfe1Info(false, false);
+            if (h[0]=='S' && h[1]=='F' && h[2]=='E' && h[3]=='1') {
+                boolean enc = (h[4] & 0b0000_0010) != 0;
+                return new Sfe1Info(true, enc);
+            }
+            return new Sfe1Info(false, false);
+        } catch (Exception e) {
+            return new Sfe1Info(false, false);
+        }
+    }
+
+    private static class Skip extends Exception {
+        final String reason;
+        Skip(String r){ this.reason = r; }
+    }
     private static class Summary { int processed=0, ok=0, skip=0, fail=0; }
 }

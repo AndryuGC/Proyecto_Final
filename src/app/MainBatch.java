@@ -5,43 +5,21 @@ import batch.BatchProcessor.BatchConfig;
 import batch.BatchProcessor.Mode;
 
 public class MainBatch {
+    // Uso:
+    // java app.MainBatch <modo> <inDir> <outDir> [password]
+    // modo: COMPRESS | COMPRESS_ENCRYPT | DECOMPRESS | DECRYPT_DECOMPRESS
+    public static void main(String[] args) throws Exception {
+        if (args.length < 3) {
+            System.out.println("Uso: java app.MainBatch <modo> <inDir> <outDir> [password]");
+            return;
+        }
+        Mode mode = Mode.valueOf(args[0]);
+        String inDir = args[1];
+        String outDir = args[2];
+        String pw = (args.length >= 4) ? args[3] : "";
 
-    public static void main(String[] args) {
-        String entradaTxt = "Entrada";
-        String salidaCmp  = "SalidaCMP";
-        String salidaEc   = "SalidaEC";
-        String recTxt1    = "RecuperadosCMP";
-        String recTxt2    = "RecuperadosEC";
-        String password   = "clave123";
-
-        // 1) Comprimir solo .txt y .md
-        BatchProcessor.runBatch(
-                new BatchConfig(entradaTxt, salidaCmp, Mode.COMPRESS)
-                        .recursive(true).overwrite(false).dryRun(false)
-                        .include(".txt", ".md").exclude(".log")
-        );
-
-        // 2) Comprimir + Encriptar (todo lo de texto)
-        BatchProcessor.runBatch(
-                new BatchConfig(entradaTxt, salidaEc, Mode.COMPRESS_ENCRYPT)
-                        .password(password)
-                        .recursive(true).overwrite(false).dryRun(false)
-                        .include(".txt", ".md").exclude(".log")
-        );
-
-        // 3) Descomprimir .cmp
-        BatchProcessor.runBatch(
-                new BatchConfig(salidaCmp, recTxt1, Mode.DECOMPRESS)
-                        .recursive(true).overwrite(true)
-        );
-
-        // 4) Descifrar + Descomprimir .ec
-        BatchProcessor.runBatch(
-                new BatchConfig(salidaEc, recTxt2, Mode.DECRYPT_DECOMPRESS)
-                        .password(password)
-                        .recursive(true).overwrite(true)
-        );
-
-        System.out.println("\nListo. Revisa 'operaciones.log' y las carpetas generadas.");
+        BatchConfig cfg = new BatchConfig(inDir, outDir, mode)
+                .recursive(true).overwrite(true).dryRun(false).password(pw);
+        BatchProcessor.runBatch(cfg);
     }
 }

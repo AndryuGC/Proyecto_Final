@@ -1,11 +1,13 @@
 package ui;
 
 import archivos.FileCompressor;
+import app.MainCrypto;
 import batch.BatchProcessor;
 import batch.BatchProcessor.BatchConfig;
 import batch.BatchProcessor.Mode;
 import javafx.application.Application;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
 import javafx.scene.image.Image;
@@ -16,420 +18,212 @@ import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
 import java.io.File;
-import java.io.IOException;
-import java.net.URL;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.MessageDigest;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.Optional;
 
 public class MainApp extends Application {
 
-    private CheckBox chkRecursive;
-    private CheckBox chkOverwrite;
-    private CheckBox chkDryRun;
-    private TextField txtInclude;
-    private TextField txtExclude;
     private TextArea console;
+    private TextField tfInclude, tfExclude;
+    private CheckBox cbRecursive, cbOverwrite, cbDryRun;
 
     @Override
     public void start(Stage stage) {
-        stage.setTitle("Compresor Seguro (LZSS + XOR) — Fase 6");
+        Button btnCompress = makeButton("Comprimir ...", "/ui/icons/compress.png");
+        Button btnDecompress = makeButton("Descomprimir ...", "/ui/icons/decompress.png");
+        Button btnCompEnc = makeButton("Comprimir + Encriptar ...", "/ui/icons/encrypt.png");
+        Button btnDecDec = makeButton("Desencriptar + Descomprimir ...", "/ui/icons/decrypt.png");
+        Button btnFolder = makeButton("Procesar carpeta ...", "/ui/icons/batch.png");
 
-        // ===== Botones (no cambia la lógica) =====
-        Button btnCmp    = styledButton("Comprimir archivo…",   "primary");
-        btnCmp.setOnAction(e -> onCompressFile(stage));
+        HBox topBar = new HBox(8, btnCompress, btnDecompress, btnCompEnc, btnDecDec, btnFolder);
+        topBar.setAlignment(Pos.CENTER_LEFT);
 
-        Button btnDecmp  = styledButton("Descomprimir archivo…","secondary");
-        btnDecmp.setOnAction(e -> onDecompressFile(stage));
-
-        Button btnCmpEnc = styledButton("Comprimir + Encriptar…","accent");
-        btnCmpEnc.setOnAction(e -> onCompressEncryptFile(stage));
-
-        Button btnDecEnc = styledButton("Desencriptar + Descomprimir…","warning");
-        btnDecEnc.setOnAction(e -> onDecryptDecompressFile(stage));
-
-        Button btnBatch  = styledButton("Procesar carpeta…","primary-outline");
-        btnBatch.setOnAction(e -> onBatch(stage));
-
-        // Íconos PNG (ponlos en /ui/icons/*.png)
-        attachIcon(btnCmp,    "compress.png");
-        attachIcon(btnDecmp,  "decompress.png");
-        attachIcon(btnCmpEnc, "encrypt.png");
-        attachIcon(btnDecEnc, "decrypt.png");
-        attachIcon(btnBatch,  "batch.png");
-
-        HBox actions = new HBox(10, btnCmp, btnDecmp, btnCmpEnc, btnDecEnc, btnBatch);
-        actions.getStyleClass().add("actions-bar");
-        actions.setPadding(new Insets(14));
-
-        // ===== Panel inferior de opciones =====
-        chkRecursive = new CheckBox("Recursivo");    chkRecursive.setSelected(true);
-        chkOverwrite = new CheckBox("Sobrescribir"); chkOverwrite.setSelected(false);
-        chkDryRun    = new CheckBox("Dry-run");      chkDryRun.setSelected(false);
-        chkRecursive.getStyleClass().add("flat-check");
-        chkOverwrite.getStyleClass().add("flat-check");
-        chkDryRun.getStyleClass().add("flat-check");
-
-        txtInclude = new TextField(".txt,.md");
-        txtExclude = new TextField(".log");
-        txtInclude.getStyleClass().add("flat-input");
-        txtExclude.getStyleClass().add("flat-input");
-
-        GridPane opts = new GridPane();
-        opts.getStyleClass().add("options-card");
-        opts.setHgap(10); opts.setVgap(8); opts.setPadding(new Insets(14));
-        int r = 0;
-        opts.add(label("Include:"), 0, r); opts.add(txtInclude, 1, r++);
-        opts.add(label("Exclude:"), 0, r); opts.add(txtExclude, 1, r++);
-        opts.add(chkRecursive, 0, r); opts.add(chkOverwrite, 1, r); opts.add(chkDryRun, 2, r);
-
-        // ===== Consola (más compacta) =====
-        console = new TextArea();
+        console = new TextArea("Listo. Elige una acción.");
         console.setEditable(false);
-        console.setWrapText(true);
-        console.setPrefRowCount(10);
-        console.setPrefHeight(220);
-        console.getStyleClass().add("console");
+        console.setPrefRowCount(14);
 
-        // spacer para que la consola no se expanda de más
-        Region spacer = new Region();
-        VBox middle = new VBox(console, spacer);
-        VBox.setVgrow(spacer, Priority.ALWAYS);
+        tfInclude = new TextField(); tfInclude.setPromptText(".txt,.md");
+        tfExclude = new TextField(); tfExclude.setPromptText(".log");
+        cbRecursive = new CheckBox("Recursivo"); cbRecursive.setSelected(true);
+        cbOverwrite = new CheckBox("Sobrescribir"); cbOverwrite.setSelected(true);
+        cbDryRun = new CheckBox("Dry-run");
 
-        // ===== Root =====
-        BorderPane root = new BorderPane();
-        root.getStyleClass().add("app-root");
-        root.setTop(actions);
-        root.setCenter(middle);
-        root.setBottom(opts);
+        GridPane bottom = new GridPane();
+        bottom.setHgap(10); bottom.setVgap(8);
+        bottom.add(new Label("Include:"), 0, 0);
+        bottom.add(tfInclude, 1, 0);
+        bottom.add(new Label("Exclude:"), 0, 1);
+        bottom.add(tfExclude, 1, 1);
+        bottom.add(new HBox(16, cbRecursive, cbOverwrite, cbDryRun), 1, 2);
 
-        Scene scene = new Scene(root, 1000, 600);
-        URL css = getClass().getResource("/ui/style.css");
-        if (css != null) scene.getStylesheets().add(css.toExternalForm());
+        VBox root = new VBox(12, topBar, console, bottom);
+        root.setPadding(new Insets(12));
 
-        stage.setScene(scene);
+        Stage st = stage;
+        btnCompress.setOnAction(e -> doCompress(st));
+        btnDecompress.setOnAction(e -> doDecompress(st));
+        btnCompEnc.setOnAction(e -> doCompEncrypt(st));
+        btnDecDec.setOnAction(e -> doDecryptDecompress(st));
+        btnFolder.setOnAction(e -> doProcessFolder(st));
+
+        stage.setTitle("Compresor Seguro (LZSS + XOR) — Fase 6");
+        stage.setScene(new Scene(root, 860, 520));
         stage.show();
-
-        log("Listo. Elige una acción.\n");
     }
 
-    // ========== Acciones archivo único ==========
-
-    private void onCompressFile(Stage owner) {
-        File in = chooseFile(owner, "Selecciona archivo de texto", "*.txt", "*.md");
-        if (in == null) return;
-        File out = chooseSave(owner, "Guardar .cmp", stripExt(in.getName()) + ".cmp");
-        if (out == null) return;
-        try {
-            FileCompressor.comprimirArchivo(in.getAbsolutePath(), out.getAbsolutePath());
-            logOk("Comprimir: " + in + " -> " + out);
-            logSizes(Path.of(in.getAbsolutePath()), Path.of(out.getAbsolutePath()), "CMP");
-        } catch (Exception ex) {
-            logFriendlyError("Error al comprimir", ex);
-        }
-    }
-
-    private void onDecompressFile(Stage owner) {
-        File in = chooseFile(owner, "Selecciona archivo .cmp", "*.cmp");
-        if (in == null) return;
-        File out = chooseSave(owner, "Guardar .txt", stripExt(in.getName()) + ".txt");
-        if (out == null) return;
-        try {
-            FileCompressor.descomprimirArchivo(in.getAbsolutePath(), out.getAbsolutePath());
-            logOk("Descomprimir: " + in + " -> " + out);
-            logSizes(null, Path.of(out.getAbsolutePath()), "TXT (recuperado)");
-            maybeCompareWithOriginal(owner, Path.of(out.getAbsolutePath()));
-        } catch (Exception ex) {
-            logFriendlyError("Error al descomprimir", ex);
-        }
-    }
-
-    private void onCompressEncryptFile(Stage owner) {
-        File in = chooseFile(owner, "Selecciona archivo de texto", "*.txt", "*.md");
-        if (in == null) return;
-        String password = askPassword("Password para encriptar");
-        if (password == null || password.isBlank()) return;
-
-        File out = chooseSave(owner, "Guardar .ec", stripExt(in.getName()) + ".ec");
-        if (out == null) return;
-        try {
-            FileCompressor.comprimirYEncriptarArchivo(in.getAbsolutePath(), out.getAbsolutePath(), password);
-            logOk("Comprimir+Encriptar: " + in + " -> " + out);
-            logSizes(Path.of(in.getAbsolutePath()), Path.of(out.getAbsolutePath()), "EC");
-        } catch (Exception ex) {
-            logFriendlyError("Error al comprimir+encriptar", ex);
-        }
-    }
-
-    private void onDecryptDecompressFile(Stage owner) {
-        File in = chooseFile(owner, "Selecciona archivo .ec", "*.ec");
-        if (in == null) return;
-
-        String password = askPassword("Password para descifrar");
-        if (password == null || password.isBlank()) return;
-
-        // Validar password ANTES de pedir la ruta de salida
-        boolean ok;
-        try {
-            ok = FileCompressor.validarPassword(in.getAbsolutePath(), password);
-        } catch (Exception ignored) { ok = false; }
-
-        if (!ok) {
-            logErr("Contraseña incorrecta.");
-            showError("Contraseña incorrecta", "La contraseña no coincide o el archivo fue cifrado con otra clave.");
-            return;
-        }
-
-        File out = chooseSave(owner, "Guardar .txt", stripExt(in.getName()) + ".txt");
-        if (out == null) return;
-
-        try {
-            FileCompressor.desencriptarYDescomprimirArchivo(in.getAbsolutePath(), out.getAbsolutePath(), password);
-            logOk("Desencriptar+Descomprimir: " + in + " -> " + out);
-            logSizes(null, Path.of(out.getAbsolutePath()), "TXT (recuperado)");
-            maybeCompareWithOriginal(owner, Path.of(out.getAbsolutePath()));
-        } catch (Exception ex) {
-            if (looksLikeWrongPassword(ex)) {
-                logErr("Contraseña incorrecta.");
-                showError("Contraseña incorrecta", "La contraseña no coincide o el archivo fue cifrado con otra clave.");
-            } else {
-                logFriendlyError("Error al desencriptar+descomprimir", ex);
-            }
-        }
-    }
-
-    // ========== Batch por carpeta ==========
-
-    private void onBatch(Stage owner) {
-        ChoiceDialog<String> dlg = new ChoiceDialog<>("COMPRESION (.txt -> .cmp)",
-                "COMPRESION (.txt -> .cmp)",
-                "COMPRESION+ENCRIPTACION (.txt -> .ec)",
-                "DESCOMPRESION (.cmp -> .txt)",
-                "DESCIFRAR+DESCOMPRIMIR (.ec -> .txt)");
-        dlg.setTitle("Procesar carpeta");
-        dlg.setHeaderText("Elige el modo de procesamiento");
-
-        Optional<String> choice = dlg.showAndWait();
-        if (choice.isEmpty()) return;
-
-        Mode mode = switch (choice.get()) {
-            case "COMPRESION (.txt -> .cmp)" -> Mode.COMPRESS;
-            case "COMPRESION+ENCRIPTACION (.txt -> .ec)" -> Mode.COMPRESS_ENCRYPT;
-            case "DESCOMPRESION (.cmp -> .txt)" -> Mode.DECOMPRESS;
-            case "DESCIFRAR+DESCOMPRIMIR (.ec -> .txt)" -> Mode.DECRYPT_DECOMPRESS;
-            default -> Mode.COMPRESS;
-        };
-
-        File inDir = chooseDir(owner, "Carpeta de entrada");
-        if (inDir == null) return;
-        File outDir = chooseDir(owner, "Carpeta de salida");
-        if (outDir == null) return;
-
-        String password = null;
-        if (mode == Mode.COMPRESS_ENCRYPT || mode == Mode.DECRYPT_DECOMPRESS) {
-            password = askPassword("Password");
-            if (password == null || password.isBlank()) return;
-        }
-
-        try {
-            BatchConfig cfg = new BatchConfig(inDir.getAbsolutePath(), outDir.getAbsolutePath(), mode)
-                    .recursive(chkRecursive.isSelected())
-                    .overwrite(chkOverwrite.isSelected())
-                    .dryRun(chkDryRun.isSelected());
-            if (password != null) cfg.password(password);
-
-            if (mode == Mode.COMPRESS || mode == Mode.COMPRESS_ENCRYPT) {
-                String includeCsv = txtInclude.getText().trim();
-                String excludeCsv = txtExclude.getText().trim();
-                if (!includeCsv.isBlank()) cfg.include(splitCsv(includeCsv));
-                if (!excludeCsv.isBlank()) cfg.exclude(splitCsv(excludeCsv));
-            }
-
-            log("\n=== BATCH " + mode.label + " ===");
-            BatchProcessor.runBatch(cfg);
-            log("=== FIN BATCH ===\n");
-        } catch (Exception ex) {
-            if (mode == Mode.DECRYPT_DECOMPRESS && looksLikeWrongPassword(ex)) {
-                logErr("Contraseña incorrecta en algún archivo del lote.");
-                showError("Contraseña incorrecta", "La contraseña no coincide para uno o más archivos.");
-            } else {
-                logFriendlyError("Error en batch", ex);
-            }
-        }
-    }
-
-    // ========== Utilidades UI/estilo ==========
-
-    private Label label(String text) {
-        Label l = new Label(text);
-        l.getStyleClass().add("flat-label");
-        return l;
-    }
-
-    private Button styledButton(String text, String styleClass) {
+    private Button makeButton(String text, String iconPath) {
         Button b = new Button(text);
-        b.getStyleClass().addAll("flat-btn", styleClass);
+        try {
+            Image img = new Image(iconPath);
+            ImageView iv = new ImageView(img);
+            iv.setFitHeight(22); iv.setPreserveRatio(true);
+            b.setGraphic(iv);
+        } catch (Exception ignored) {}
+        b.setMaxHeight(Double.MAX_VALUE);
         return b;
     }
+    private void log(String s){ console.appendText("\n" + s); }
+    private void showError(Exception ex){
+        Alert a = new Alert(Alert.AlertType.ERROR, ex.getMessage(), ButtonType.OK);
+        a.setHeaderText("Error"); a.showAndWait();
+    }
+    private void showWarn(String msg){
+        Alert a = new Alert(Alert.AlertType.WARNING, msg, ButtonType.OK);
+        a.setHeaderText(null); a.showAndWait();
+    }
+    private Optional<String> askPassword(String title){
+        TextInputDialog d = new TextInputDialog();
+        d.setTitle(title); d.setHeaderText(null); d.setContentText("Contraseña:");
+        return d.showAndWait();
+    }
 
-    private void attachIcon(Button b, String fileName) {
+    // ===== Acciones de archivo único =====
+    private void doCompress(Stage st){
+        FileChooser fc = new FileChooser();
+        fc.setTitle("Elegir archivo a comprimir");
+        File f = fc.showOpenDialog(st);
+        if (f == null) return;
         try {
-            URL url = getClass().getResource("/ui/icons/" + fileName);
-            if (url == null) return; // si el ícono no existe, no falla
-            Image img = new Image(url.toExternalForm(), 28, 28, true, true);
-            ImageView iv = new ImageView(img);
-            b.setGraphic(iv);
-            b.setContentDisplay(ContentDisplay.LEFT);
-            b.setGraphicTextGap(12);
-        } catch (Exception ignored) { }
+            Path in = f.toPath();
+            Path out = FileCompressor.changeExt(in, ".cmp");
+            FileCompressor.compressFile(in, out);
+            log("OK: " + in + " -> " + out);
+        } catch (Exception ex){ log("ERROR: " + ex.getMessage()); showError(ex); }
     }
 
-    private File chooseFile(Stage owner, String title, String... filters) {
+    private void doDecompress(Stage st){
         FileChooser fc = new FileChooser();
-        fc.setTitle(title);
-        if (filters != null && filters.length > 0)
-            fc.getExtensionFilters().add(new FileChooser.ExtensionFilter(String.join(", ", filters), filters));
-        return fc.showOpenDialog(owner);
+        fc.setTitle("Elegir .cmp a descomprimir");
+        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("CMP","*.cmp"));
+        File f = fc.showOpenDialog(st);
+        if (f == null) return;
+        try {
+            Path in = f.toPath();
+            Path out = FileCompressor.changeExt(in, ".txt");
+            FileCompressor.decompressFile(in, out);
+            log("OK: " + in + " -> " + out);
+        } catch (Exception ex){ log("ERROR: " + ex.getMessage()); showError(ex); }
     }
 
-    private File chooseSave(Stage owner, String title, String suggested) {
+    private void doCompEncrypt(Stage st){
         FileChooser fc = new FileChooser();
-        fc.setTitle(title);
-        fc.setInitialFileName(suggested);
-        return fc.showSaveDialog(owner);
+        fc.setTitle("Elegir archivo a comprimir + encriptar");
+        File f = fc.showOpenDialog(st);
+        if (f == null) return;
+        var pw = askPassword("Comprimir + Encriptar");
+        if (pw.isEmpty() || pw.get().isBlank()) { showWarn("Contraseña vacía"); return; }
+        try {
+            Path in = f.toPath();
+            Path out = FileCompressor.changeExt(in, ".ec");
+            MainCrypto.comprimirYEncriptarArchivo(in.toString(), out.toString(), pw.get());
+            log("OK: " + in + " -> " + out);
+        } catch (Exception ex){ log("ERROR: " + ex.getMessage()); showError(ex); }
     }
 
-    private File chooseDir(Stage owner, String title) {
+    private void doDecryptDecompress(Stage st){
+        FileChooser fc = new FileChooser();
+        fc.setTitle("Elegir .ec a desencriptar + descomprimir");
+        fc.getExtensionFilters().add(new FileChooser.ExtensionFilter("EC","*.ec"));
+        File f = fc.showOpenDialog(st);
+        if (f == null) return;
+        var pw = askPassword("Desencriptar + Descomprimir");
+        if (pw.isEmpty() || pw.get().isBlank()) { showWarn("Contraseña vacía"); return; }
+        try {
+            Path in = f.toPath();
+            Path out = FileCompressor.changeExt(in, ".txt");
+            MainCrypto.desencriptarYDescomprimirArchivo(in.toString(), out.toString(), pw.get());
+            log("OK: " + in + " -> " + out);
+        } catch (Exception ex){ log("ERROR: " + ex.getMessage()); showError(ex); }
+    }
+
+    // ===== Carpeta (primero pregunta MODO como antes) =====
+    private void doProcessFolder(Stage st){
+        Mode mode = askMode();
+        if (mode == null) return;
+
+        String pw = "";
+        if (mode == Mode.COMPRESS_ENCRYPT || mode == Mode.DECRYPT_DECOMPRESS) {
+            var pwOpt = askPassword("Contraseña");
+            if (pwOpt.isEmpty() || pwOpt.get().isBlank()) { showWarn("Contraseña vacía"); return; }
+            pw = pwOpt.get();
+        }
+
         DirectoryChooser dc = new DirectoryChooser();
-        dc.setTitle(title);
-        return dc.showDialog(owner);
-    }
+        dc.setTitle("Carpeta de entrada");
+        File in = dc.showDialog(st);
+        if (in == null) return;
 
-    private String askPassword(String title) {
-        TextInputDialog td = new TextInputDialog();
-        td.setTitle(title);
-        td.setHeaderText(null);
-        td.setContentText("Password:");
-        Optional<String> res = td.showAndWait();
-        return res.orElse(null);
-    }
+        DirectoryChooser dc2 = new DirectoryChooser();
+        dc2.setTitle("Carpeta de salida");
+        File out = dc2.showDialog(st);
+        if (out == null) return;
 
-    private String stripExt(String name) {
-        int i = name.lastIndexOf('.');
-        return (i >= 0) ? name.substring(0, i) : name;
-    }
-
-    private String[] splitCsv(String csv) {
-        return Arrays.stream(csv.split(","))
-                .map(String::trim)
-                .filter(s -> !s.isBlank())
-                .toArray(String[]::new);
-    }
-
-    private void log(String s)   { console.appendText(s + "\n"); }
-    private void logOk(String s) { console.appendText("[OK] " + s + "\n"); }
-    private void logErr(String s){ console.appendText("[ERR] " + s + "\n"); }
-
-    private void showError(String header, String content) {
-        Alert a = new Alert(Alert.AlertType.ERROR);
-        a.setTitle("Error");
-        a.setHeaderText(header);
-        a.setContentText((content == null || content.isBlank()) ? "(sin detalle)" : content);
-        a.getDialogPane().setMinHeight(Region.USE_PREF_SIZE);
-        a.showAndWait();
-    }
-
-    // ========== Extras: tamaños, comparación, errores amigables ==========
-
-    private void logSizes(Path original, Path result, String etiqueta) {
         try {
-            if (original != null) {
-                long inB  = Files.size(original);
-                log("  Tamaño original : " + inB + " B (" + human(inB) + ")");
-            }
-            long outB = Files.size(result);
-            log("  Tamaño " + etiqueta + " : " + outB + " B (" + human(outB) + ")\n");
-        } catch (IOException ignored) { }
+            BatchConfig cfg = new BatchConfig(in.getAbsolutePath(), out.getAbsolutePath(), mode)
+                    .recursive(cbRecursive.isSelected())
+                    .overwrite(cbOverwrite.isSelected())
+                    .dryRun(cbDryRun.isSelected())
+                    .password(pw);
+
+            for (String ext : splitList(tfInclude.getText())) if (!ext.isBlank()) cfg.include(cleanExt(ext));
+            for (String ext : splitList(tfExclude.getText())) if (!ext.isBlank()) cfg.exclude(cleanExt(ext));
+
+            BatchProcessor.runBatch(cfg);
+            log("Procesamiento completado: " + in + " -> " + out + " (" + mode + ")");
+        } catch (Exception ex){ log("ERROR: " + ex.getMessage()); showError(ex); }
     }
 
-    private void maybeCompareWithOriginal(Stage owner, Path recovered) {
-        ButtonType si = new ButtonType("Comparar…", ButtonBar.ButtonData.OK_DONE);
-        ButtonType no = new ButtonType("Omitir", ButtonBar.ButtonData.CANCEL_CLOSE);
-        Alert a = new Alert(Alert.AlertType.CONFIRMATION, "¿Comparar el recuperado con el original?", si, no);
-        a.setHeaderText(null);
-        a.setTitle("Comparar");
-        a.showAndWait().ifPresent(bt -> {
-            if (bt == si) {
-                File orig = chooseFile(owner, "Selecciona el archivo ORIGINAL", "*.*");
-                if (orig != null) compareFiles(Path.of(orig.getAbsolutePath()), recovered);
-            }
-        });
+    private Mode askMode(){
+        ChoiceDialog<String> dlg = new ChoiceDialog<>(
+                "Comprimir",
+                "Comprimir",
+                "Comprimir + Encriptar",
+                "Descomprimir",
+                "Desencriptar + Descomprimir"
+        );
+        dlg.setTitle("Procesar Carpeta");
+        dlg.setHeaderText("¿Qué quieres hacer?");
+        dlg.setContentText("Modo:");
+        Optional<String> sel = dlg.showAndWait();
+        if (sel.isEmpty()) return null;
+        return switch (sel.get()) {
+            case "Comprimir" -> Mode.COMPRESS;
+            case "Comprimir + Encriptar" -> Mode.COMPRESS_ENCRYPT;
+            case "Descomprimir" -> Mode.DECOMPRESS;
+            case "Desencriptar + Descomprimir" -> Mode.DECRYPT_DECOMPRESS;
+            default -> null;
+        };
     }
 
-    private void compareFiles(Path a, Path b) {
-        try {
-            long sa = Files.size(a), sb = Files.size(b);
-            log("  Original : " + sa + " B (" + human(sa) + ")");
-            log("  Recuperado: " + sb + " B (" + human(sb) + ")");
-            if (sa != sb) {
-                logErr("  Resultado: DIFERENTES (tamaños distintos)");
-                return;
-            }
-            String ha = sha256(a), hb = sha256(b);
-            if (ha.equals(hb)) {
-                logOk("  Resultado: IGUALES (byte a byte)  SHA-256=" + ha + "\n");
-            } else {
-                logErr("  Resultado: DIFERENTES (hash distinto)  orig=" + ha + " rec=" + hb + "\n");
-            }
-        } catch (Exception ex) {
-            logErr("Error al comparar: " + ex.getMessage());
-        }
+    private static String[] splitList(String s){
+        if (s == null || s.isBlank()) return new String[0];
+        return Arrays.stream(s.split("[,;\\s]+")).toArray(String[]::new);
     }
-
-    private String sha256(Path p) throws Exception {
-        MessageDigest md = MessageDigest.getInstance("SHA-256");
-        try (var in = Files.newInputStream(p)) {
-            byte[] buf = new byte[1 << 20]; // 1 MB
-            int n;
-            while ((n = in.read(buf)) > 0) md.update(buf, 0, n);
-        }
-        byte[] dig = md.digest();
-        StringBuilder sb = new StringBuilder();
-        for (byte x : dig) sb.append(String.format("%02x", x));
-        return sb.toString();
-    }
-
-    private String human(long bytes) {
-        double b = bytes;
-        String[] u = {"B","KB","MB","GB","TB"};
-        int i = 0;
-        while (b >= 1024 && i < u.length-1) { b /= 1024; i++; }
-        return String.format("%.2f %s", b, u[i]);
-    }
-
-    private boolean looksLikeWrongPassword(Throwable ex) {
-        String m = (ex.getMessage() == null) ? "" : ex.getMessage().toLowerCase();
-        return m.contains("malformed")
-                || m.contains("input length")
-                || m.contains("bytes to tokens")
-                || m.contains("formato")
-                || m.contains("invalid")
-                || m.contains("out of bounds");
-    }
-
-
-    private void loglyfriendlyerror(String header, Exception ex) {
-        logFriendlyError(header, ex);
-    }
-
-    private void logFriendlyError(String titulo, Exception ex) {
-        String msg = (ex.getMessage() == null || ex.getMessage().isBlank())
-                ? ex.toString()
-                : ex.getMessage();
-        logErr(titulo + ": " + msg);
-        showError(titulo, msg);
+    private static String cleanExt(String s){
+        String t = s.trim().toLowerCase(Locale.ROOT);
+        return t.startsWith(".") ? t.substring(1) : t;
     }
 
     public static void main(String[] args) { launch(args); }
